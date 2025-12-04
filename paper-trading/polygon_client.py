@@ -55,12 +55,14 @@ class PolygonOptionsClient:
             return df.set_index('date')[['Open', 'High', 'Low', 'Close', 'Volume']]
         return pd.DataFrame()
     
-    def get_options_chain(self, ticker: str, strike_gte: float = None, strike_lte: float = None, limit: int = 250) -> pd.DataFrame:
+    def get_options_chain(self, ticker: str, strike_gte: float = None, strike_lte: float = None, expiration_gte: str = None, limit: int = 250) -> pd.DataFrame:
         params = {'limit': limit}
         if strike_gte:
             params['strike_price.gte'] = strike_gte
         if strike_lte:
             params['strike_price.lte'] = strike_lte
+        if expiration_gte:
+            params['expiration_date.gte'] = expiration_gte
         data = self._request(f"/v3/snapshot/options/{ticker}", params)
         if data.get('results'):
             options = []
@@ -68,11 +70,16 @@ class PolygonOptionsClient:
                 d = opt.get('details', {})
                 g = opt.get('greeks', {})
                 day = opt.get('day', {})
+                raw_iv = opt.get('implied_volatility')
+                # Normalize IV: if > 5, assume it's already percentage (e.g., 20 = 20%)
+                # Otherwise assume decimal (e.g., 0.20 = 20%)
+                if raw_iv is not None and raw_iv > 5:
+                    raw_iv = raw_iv / 100  # Convert 20 -> 0.20
                 options.append({
                     'type': d.get('contract_type'),
                     'strike': d.get('strike_price'),
                     'expiration': d.get('expiration_date'),
-                    'iv': opt.get('implied_volatility'),  # IV is at top level, not in greeks
+                    'iv': raw_iv,
                     'delta': g.get('delta'),
                     'gamma': g.get('gamma'),
                     'theta': g.get('theta'),
@@ -89,14 +96,14 @@ class PolygonOptionsClient:
         price = self.get_stock_price(ticker)
         if not price:
             return None, None
-        chain = self.get_options_chain(ticker, strike_gte=price*0.95, strike_lte=price*1.05)
+
+        # Request options expiring at least 7 days out to avoid 0DTE noise
+        min_exp = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
+        chain = self.get_options_chain(ticker, strike_gte=price*0.95, strike_lte=price*1.05, expiration_gte=min_exp)
         if chain.empty:
             return None, price
 
-        # Filter out unrealistic IVs and short-dated options
-        # Real IV is typically 0.10-0.80 (10%-80%), cap at 1.0 (100%)
-        min_exp = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
-        chain = chain[chain['expiration'] >= min_exp]
+        # Filter out unrealistic IVs - real IV is typically 0.05-0.80 (5%-80%)
         chain = chain[chain['iv'].notna() & (chain['iv'] > 0.05) & (chain['iv'] < 1.0)]
 
         if chain.empty:
