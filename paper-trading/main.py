@@ -9,9 +9,7 @@ Usage:
 """
 import sys
 from datetime import datetime
-import pandas as pd
 from iv_tracker import IVTracker
-from polygon_client import PolygonOptionsClient
 
 #############################################
 #  PASTE YOUR API KEY BELOW
@@ -21,34 +19,12 @@ API_KEY = "F7WKp6kqYhOyPglsS1TJvDEC_0L5C3xQ"
 
 WATCHLIST = ['SPY', 'QQQ', 'NVDA', 'AAPL', 'TSLA', 'AMD', 'META', 'MSFT', 'GOOGL', 'AMZN']
 
-def get_direction(client, ticker):
-    df = client.get_stock_history(ticker, 50)
-    if len(df) < 20:
-        return 'neutral'
-    close = df['Close'].values
-    sma20 = pd.Series(close).rolling(20).mean().iloc[-1]
-    sma50 = pd.Series(close).rolling(50).mean().iloc[-1] if len(df) >= 50 else sma20
-    if close[-1] > sma20 and sma20 > sma50:
-        return 'bullish'
-    elif close[-1] < sma20 and sma20 < sma50:
-        return 'bearish'
-    return 'neutral'
-
-def get_strategy(signal, direction):
+def get_strategy(signal):
+    """Get strategy based on IV signal (direction requires stock data subscription)"""
     if signal == 'SELL_PREMIUM':
-        if direction == 'bullish':
-            return 'PUT CREDIT SPREAD', 'Sell OTM put spread, collect premium'
-        elif direction == 'bearish':
-            return 'CALL CREDIT SPREAD', 'Sell OTM call spread, collect premium'
-        else:
-            return 'IRON CONDOR', 'Sell OTM put spread + call spread'
+        return 'IRON CONDOR', 'Sell OTM put spread + call spread'
     elif signal == 'BUY_PREMIUM':
-        if direction == 'bullish':
-            return 'CALL DEBIT SPREAD', 'Buy ATM call, sell OTM call'
-        elif direction == 'bearish':
-            return 'PUT DEBIT SPREAD', 'Buy ATM put, sell OTM put'
-        else:
-            return 'LONG STRADDLE', 'Buy ATM call + put, bet on movement'
+        return 'LONG STRADDLE', 'Buy ATM call + put, bet on movement'
     return 'NO TRADE', 'Wait for better setup'
 
 def scan(tickers):
@@ -59,14 +35,13 @@ def scan(tickers):
         return
 
     tracker = IVTracker(API_KEY)
-    client = PolygonOptionsClient(API_KEY)
-    
+
     print("\n" + "="*75)
     print("  OPTIONS EDGE SCANNER")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("  Using real Polygon.io data")
+    print("  Using Polygon.io Options API")
     print("="*75)
-    
+
     results = []
     for ticker in tickers:
         print(f"\n  Scanning {ticker}...", end="", flush=True)
@@ -75,8 +50,7 @@ def scan(tickers):
             if 'error' in data:
                 print(f" Error: {data['error']}")
                 continue
-            data['direction'] = get_direction(client, ticker)
-            data['strategy'], data['action'] = get_strategy(data['signal'], data['direction'])
+            data['strategy'], data['action'] = get_strategy(data['signal'])
             results.append(data)
             print(f" Done - IV:{data['iv']}% Rank:{data['iv_rank']}%")
         except Exception as e:
@@ -94,22 +68,17 @@ def scan(tickers):
     
     for r in results:
         est = "(est)" if r.get('iv_rank_est') else ""
-        
+
         if r['signal'] == 'SELL_PREMIUM':
             edge = 'SELL PREMIUM [HIGH IV]'
         elif r['signal'] == 'BUY_PREMIUM':
             edge = 'BUY PREMIUM [LOW IV]'
         else:
             edge = 'NEUTRAL'
-        
-        dir_display = r['direction'].upper()
-        
+
         print(f"""
 +===========================================================================+
-|  {r['ticker']:6}  |  ${r['price']:<10}  |  {dir_display:<10}                          |
-+---------------------------------------------------------------------------+
-|  ATM IV:     {r['iv']:>6.1f}%    |  20d HV:    {r['hv20'] or 'N/A':>6}%   |  60d HV: {r['hv60'] or 'N/A':>6}%  |
-|  IV/HV:      {r['iv_hv'] or 'N/A':>6}x    |  IV Rank:   {r['iv_rank'] or 'N/A':>6}% {est:5}                  |
+|  {r['ticker']:6}  |  ${r['price']:<10}  |  IV: {r['iv']:>5.1f}%  |  Rank: {r['iv_rank']:>5.1f}% {est:5} |
 +---------------------------------------------------------------------------+
 |  EDGE:       {edge:<25}                              |
 |  STRATEGY:   {r['strategy']:<25}                              |
@@ -130,7 +99,7 @@ def scan(tickers):
     best = results[0]
     if best['signal'] != 'NEUTRAL':
         print(f"\n  TOP OPPORTUNITY: {best['ticker']}")
-        print(f"     IV Rank: {best['iv_rank']}%  |  IV/HV: {best['iv_hv']}x")
+        print(f"     IV: {best['iv']}%  |  IV Rank: {best['iv_rank']}%")
         print(f"     Strategy: {best['strategy']}")
         print(f"     {best['action']}")
     

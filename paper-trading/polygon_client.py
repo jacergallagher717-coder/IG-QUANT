@@ -93,27 +93,50 @@ class PolygonOptionsClient:
         return pd.DataFrame()
     
     def get_atm_iv(self, ticker: str) -> Tuple[Optional[float], Optional[float]]:
-        price = self.get_stock_price(ticker)
-        if not price:
+        # Get options chain WITHOUT knowing the price first (avoid stock API call)
+        min_exp = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
+
+        # First, get a sample of options to find the underlying price from strikes
+        data = self._request(f"/v3/snapshot/options/{ticker}", {
+            'limit': 50,
+            'expiration_date.gte': min_exp
+        })
+
+        if not data.get('results'):
             return None, None
 
-        # Request options expiring at least 7 days out to avoid 0DTE noise
-        min_exp = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
-        chain = self.get_options_chain(ticker, strike_gte=price*0.95, strike_lte=price*1.05, expiration_gte=min_exp)
-        if chain.empty:
+        # Extract underlying price from the options data
+        # Use the middle strike as a proxy for the underlying price
+        strikes = [opt.get('details', {}).get('strike_price') for opt in data['results'] if opt.get('details', {}).get('strike_price')]
+        if not strikes:
+            return None, None
+
+        # Estimate price from median strike
+        price = sorted(strikes)[len(strikes)//2]
+
+        # Now filter to ATM options and get IV
+        options = []
+        for opt in data['results']:
+            d = opt.get('details', {})
+            strike = d.get('strike_price')
+            if strike and abs(strike - price) / price <= 0.05:  # Within 5% of estimated price
+                raw_iv = opt.get('implied_volatility')
+                if raw_iv is not None:
+                    # Normalize IV format
+                    if raw_iv > 5:
+                        raw_iv = raw_iv / 100
+                    if 0.05 < raw_iv < 1.0:  # Valid IV range
+                        options.append({'strike': strike, 'iv': raw_iv})
+
+        if not options:
             return None, price
 
-        # Filter out unrealistic IVs - real IV is typically 0.05-0.80 (5%-80%)
-        chain = chain[chain['iv'].notna() & (chain['iv'] > 0.05) & (chain['iv'] < 1.0)]
+        # Get the 4 closest to ATM
+        options.sort(key=lambda x: abs(x['strike'] - price))
+        atm_ivs = [o['iv'] for o in options[:4]]
 
-        if chain.empty:
-            return None, price
-
-        chain['dist'] = abs(chain['strike'] - price)
-        atm = chain.nsmallest(4, 'dist')
-        ivs = atm['iv'].dropna()
-        if len(ivs) > 0:
-            return ivs.mean(), price
+        if atm_ivs:
+            return sum(atm_ivs) / len(atm_ivs), price
         return None, price
     
     def get_hv(self, ticker: str, window: int = 20) -> Optional[float]:

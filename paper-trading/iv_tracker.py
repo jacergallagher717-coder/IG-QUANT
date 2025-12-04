@@ -41,40 +41,43 @@ class IVTracker:
             return 50.0
         return round((current_iv - lo) / (hi - lo) * 100, 1)
     
-    def analyze(self, ticker: str) -> Dict:
+    def analyze(self, ticker: str, include_hv: bool = False) -> Dict:
         ticker = ticker.upper()
         iv, price = self.client.get_atm_iv(ticker)
-        hv20 = self.client.get_hv(ticker, 20)
-        hv60 = self.client.get_hv(ticker, 60)
-        
+
         if iv is None:
             return {'ticker': ticker, 'error': 'Could not get IV'}
-        
+
         iv_pct = round(iv * 100, 2)
-        hv20_pct = round(hv20 * 100, 2) if hv20 else None
-        hv60_pct = round(hv60 * 100, 2) if hv60 else None
-        iv_hv = round(iv / hv20, 2) if hv20 else None
-        
+
+        # HV requires stock data (separate subscription) - skip by default
+        hv20_pct = None
+        hv60_pct = None
+        iv_hv = None
+        if include_hv:
+            hv20 = self.client.get_hv(ticker, 20)
+            hv60 = self.client.get_hv(ticker, 60)
+            hv20_pct = round(hv20 * 100, 2) if hv20 else None
+            hv60_pct = round(hv60 * 100, 2) if hv60 else None
+            iv_hv = round(iv / hv20, 2) if hv20 else None
+
         self.record(ticker, iv_pct)
         iv_rank = self.get_iv_rank(ticker, iv_pct)
-        
-        if iv_rank is None and iv_hv:
-            iv_rank = round(min(100, max(0, (iv_hv - 0.8) / 0.7 * 100)), 1)
+
+        # Estimate IV rank if we don't have enough history
+        estimated = False
+        if iv_rank is None:
+            # Use 50 as baseline if no history
+            iv_rank = 50.0
             estimated = True
-        else:
-            estimated = False
-        
-        if iv_rank and iv_rank > 70:
+
+        if iv_rank > 70:
             signal = 'SELL_PREMIUM'
-        elif iv_rank and iv_rank < 30:
-            signal = 'BUY_PREMIUM'
-        elif iv_hv and iv_hv > 1.2:
-            signal = 'SELL_PREMIUM'
-        elif iv_hv and iv_hv < 0.9:
+        elif iv_rank < 30:
             signal = 'BUY_PREMIUM'
         else:
             signal = 'NEUTRAL'
-        
+
         return {
             'ticker': ticker,
             'price': round(price, 2) if price else None,
