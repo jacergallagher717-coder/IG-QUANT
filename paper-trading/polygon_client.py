@@ -27,8 +27,8 @@ class PolygonOptionsClient:
             if response.status_code == 200:
                 return response.json()
             elif response.status_code == 429:
-                print("Rate limited, waiting 60s...")
-                time.sleep(60)
+                print("Rate limited, waiting 5s...")
+                time.sleep(5)
                 return self._request(endpoint, params)
             else:
                 return {'status': 'ERROR', 'error': response.text}
@@ -89,6 +89,15 @@ class PolygonOptionsClient:
         chain = self.get_options_chain(ticker, strike_gte=price*0.95, strike_lte=price*1.05)
         if chain.empty:
             return None, price
+
+        # Filter out unrealistic IVs (>200%) and 0DTE options
+        min_exp = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
+        chain = chain[chain['expiration'] >= min_exp]
+        chain = chain[chain['iv'].notna() & (chain['iv'] > 0) & (chain['iv'] < 2.0)]
+
+        if chain.empty:
+            return None, price
+
         chain['dist'] = abs(chain['strike'] - price)
         atm = chain.nsmallest(4, 'dist')
         ivs = atm['iv'].dropna()
