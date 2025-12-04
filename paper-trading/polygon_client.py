@@ -69,7 +69,7 @@ class PolygonOptionsClient:
                     'type': d.get('contract_type'),
                     'strike': d.get('strike_price'),
                     'expiration': d.get('expiration_date'),
-                    'iv': g.get('implied_volatility'),
+                    'iv': opt.get('implied_volatility'),  # IV is at top level, not in greeks
                     'delta': g.get('delta'),
                     'gamma': g.get('gamma'),
                     'theta': g.get('theta'),
