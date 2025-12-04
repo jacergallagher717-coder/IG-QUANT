@@ -13,10 +13,11 @@ class PolygonOptionsClient:
         self.session = requests.Session()
         self._last_call = 0
     
-    def _request(self, endpoint: str, params: Dict = None) -> Dict:
+    def _request(self, endpoint: str, params: Dict = None, _retry: int = 0) -> Dict:
+        # Enforce minimum 1 second between calls to avoid rate limits
         elapsed = time.time() - self._last_call
-        if elapsed < 0.12:
-            time.sleep(0.12 - elapsed)
+        if elapsed < 1.0:
+            time.sleep(1.0 - elapsed)
         if params is None:
             params = {}
         params['apiKey'] = self.api_key
@@ -27,9 +28,11 @@ class PolygonOptionsClient:
             if response.status_code == 200:
                 return response.json()
             elif response.status_code == 429:
-                print("Rate limited, waiting 5s...")
-                time.sleep(5)
-                return self._request(endpoint, params)
+                if _retry >= 3:
+                    return {'status': 'ERROR', 'error': 'Rate limit exceeded'}
+                wait = 2 ** _retry  # Exponential backoff: 1s, 2s, 4s
+                time.sleep(wait)
+                return self._request(endpoint, params, _retry + 1)
             else:
                 return {'status': 'ERROR', 'error': response.text}
         except Exception as e:
@@ -90,10 +93,11 @@ class PolygonOptionsClient:
         if chain.empty:
             return None, price
 
-        # Filter out unrealistic IVs (>200%) and 0DTE options
+        # Filter out unrealistic IVs and short-dated options
+        # Real IV is typically 0.10-0.80 (10%-80%), cap at 1.0 (100%)
         min_exp = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
         chain = chain[chain['expiration'] >= min_exp]
-        chain = chain[chain['iv'].notna() & (chain['iv'] > 0) & (chain['iv'] < 2.0)]
+        chain = chain[chain['iv'].notna() & (chain['iv'] > 0.05) & (chain['iv'] < 1.0)]
 
         if chain.empty:
             return None, price
