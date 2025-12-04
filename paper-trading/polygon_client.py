@@ -14,10 +14,10 @@ class PolygonOptionsClient:
         self._last_call = 0
     
     def _request(self, endpoint: str, params: Dict = None, _retry: int = 0) -> Dict:
-        # Enforce minimum 1 second between calls to avoid rate limits
+        # Enforce minimum 2 seconds between calls to avoid rate limits
         elapsed = time.time() - self._last_call
-        if elapsed < 1.0:
-            time.sleep(1.0 - elapsed)
+        if elapsed < 2.0:
+            time.sleep(2.0 - elapsed)
         if params is None:
             params = {}
         params['apiKey'] = self.api_key
