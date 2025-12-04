@@ -16,7 +16,7 @@ from polygon_client import PolygonOptionsClient
 #############################################
 #  PASTE YOUR API KEY BELOW
 #############################################
-API_KEY = "PASTE_YOUR_API_KEY_HERE"
+API_KEY = "F7WKp6kqYhOyPglsS1TJvDEC_0L5C3xQ"
 #############################################
 
 WATCHLIST = ['SPY', 'QQQ', 'NVDA', 'AAPL', 'TSLA', 'AMD', 'META', 'MSFT', 'GOOGL', 'AMZN']
@@ -52,9 +52,9 @@ def get_strategy(signal, direction):
     return 'NO TRADE', 'Wait for better setup'
 
 def scan(tickers):
-    if API_KEY == "PASTE_YOUR_API_KEY_HERE":
+    if API_KEY == "F7WKp6kqYhOyPglsS1TJvDEC_0L5C3xQ":
         print("\n ERROR: You need to add your API key!")
-        print("   Open main.py and replace PASTE_YOUR_API_KEY_HERE with your Polygon API key")
+        print("   Open main.py and replace F7WKp6kqYhOyPglsS1TJvDEC_0L5C3xQ with your Polygon API key")
         print("   Get it from: https://polygon.io/dashboard")
         return
     
